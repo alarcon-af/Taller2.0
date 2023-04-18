@@ -1,9 +1,14 @@
 package com.example.taller20
 
+import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.hardware.Sensor
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.location.Location
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
@@ -23,10 +28,24 @@ import com.example.taller20.MainActivity.Companion.ACCESS_FINE_LOCATION
 import com.example.taller20.databinding.ActivityMapsBinding
 import com.google.android.gms.location.*
 import com.google.android.gms.tasks.Task
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.io.FileNotFoundException
+import java.io.FileOutputStream
+import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.*
+import android.location.Geocoder
+import android.view.KeyEvent
+import android.view.inputmethod.EditorInfo
+import android.widget.EditText
+import android.widget.TextView
+
 
 
 class MapActivity : AppCompatActivity(), OnMapReadyCallback{
-    private lateinit var mMap: GoogleMap
+    private var mMap: GoogleMap? = null
     private lateinit var binding: ActivityMapsBinding
     private lateinit var sensorManager: SensorManager
     private lateinit var lightSensor: Sensor
@@ -36,8 +55,11 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback{
     private lateinit var mLocationRequest: LocationRequest
     private lateinit var mLocationCallback: LocationCallback
 
-    private var longitud: String? = null
-    private var latitud: String? = null
+    private var longitud: Double? = null
+    private var latitud: Double? = null
+    private var currentZoomLevel: Float = 18F
+    private var lastRecordedLocation: LatLng? = null
+    private val distanceThreshold = 30.0
 
     override fun onRequestPermissionsResult(
         requestCode: Int,
@@ -67,6 +89,40 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback{
             }*/
         }
 
+    }
+
+    private fun calculateDistanceInMeters(a: LatLng, b: LatLng): Double {
+        val locationA = Location("pointA").apply {
+            latitude = a.latitude
+            longitude = a.longitude
+        }
+        val locationB = Location("pointB").apply {
+            latitude = b.latitude
+            longitude = b.longitude
+        }
+        return locationA.distanceTo(locationB).toDouble()
+    }
+
+    private fun saveLocationToJson(latitude: Double, longitude: Double) {
+        val timeStamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+        val newLocation = JSONObject().apply {
+            put("latitude", latitude)
+            put("longitude", longitude)
+            put("timestamp", timeStamp)
+        }
+
+        val jsonFile = File(filesDir, "locations.json")
+        val locationsArray = if (jsonFile.exists()) {
+            JSONArray(jsonFile.readText())
+        } else {
+            JSONArray()
+        }
+
+        locationsArray.put(newLocation)
+
+        FileOutputStream(jsonFile).use { outputStream ->
+            outputStream.write(locationsArray.toString().toByteArray())
+        }
     }
 
     private fun checkLocationPermission() {
@@ -125,14 +181,80 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback{
     private fun startLocationUpdates() {
         if (ActivityCompat.checkSelfPermission(
                 this, android.Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED /*&& ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED*/
+            ) == PackageManager.PERMISSION_GRANTED
         ) {
             mFusedLocationClient.requestLocationUpdates(mLocationRequest, mLocationCallback, Looper.getMainLooper())
         }
     }
+
+    private fun readJsonFile(): String {
+        val fileName = "locations.json"
+        return try {
+            val inputStream = openFileInput(fileName)
+            inputStream.bufferedReader().use { it.readText() }
+        } catch (e: FileNotFoundException) {
+            "Archivo no encontrado"
+        } catch (e: IOException) {
+            "Error al leer el archivo"
+        }
+    }
+
+
+    private fun updateLocationOnMap(latitude: Double, longitude: Double) {
+
+        mMap?.clear()
+
+        // Crea un nuevo marcador con la ubicación actualizada
+        val currentLocation = LatLng(latitude, longitude)
+        mMap?.addMarker(
+            MarkerOptions()
+                .position(currentLocation)
+                .title("Ubicación actual")
+                .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_BLUE))
+        )
+
+        // Mueve la cámara a la nueva ubicación
+        mMap?.moveCamera(CameraUpdateFactory.newLatLng(currentLocation))
+
+        currentZoomLevel = mMap?.cameraPosition?.zoom ?: currentZoomLevel
+
+
+        // Anima la cámara al nivel de zoom guardado
+        mMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(currentLocation, currentZoomLevel))
+
+    }
+
+    private fun setMapStyleBasedOnLightLevel(lightLevel: Float) {
+        val styleId = if (lightLevel < 1000) {
+            R.raw.style_dark
+        } else {
+            R.raw.style_json
+        }
+        mMap?.setMapStyle(MapStyleOptions.loadRawResourceStyle(this, styleId))
+    }
+
+    private fun searchAddress(address: String) {
+        val geocoder = Geocoder(this)
+        val addresses = geocoder.getFromLocationName(address, 1)
+
+        if (addresses?.isNotEmpty() == true) {
+            val location = LatLng(addresses[0].latitude, addresses[0].longitude)
+
+            mMap?.clear()
+            mMap?.addMarker(
+                MarkerOptions()
+                    .position(location)
+                    .title("Dirección buscada")
+                    .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN))
+            )
+            mMap!!.animateCamera(CameraUpdateFactory.newLatLngZoom(location, 15f))
+        } else {
+            Toast.makeText(this, "Dirección no encontrada", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -150,16 +272,21 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback{
                 android.Manifest.permission.ACCESS_FINE_LOCATION
             ) == PackageManager.PERMISSION_GRANTED
         ){
-            mLocationCallback = object : LocationCallback(){
+            mLocationCallback = object : LocationCallback() {
                 override fun onLocationResult(locationResult: LocationResult) {
-                    startLocationUpdates()
                     super.onLocationResult(locationResult)
                     val location = locationResult.lastLocation
-                    //location recibira la ubicacion actualizada
                     Log.i("LOCATION", "Location update in the callback: $location")
-                    if(location!=null){
-                        longitud = location.longitude.toString()
-                        latitud = location.latitude.toString()
+                    if (location != null) {
+                        val newLocation = LatLng(location.latitude, location.longitude)
+                        if(lastRecordedLocation==null || calculateDistanceInMeters(
+                                lastRecordedLocation!!, newLocation) >= distanceThreshold){
+                            lastRecordedLocation = newLocation
+                            saveLocationToJson(location.latitude, location.longitude)
+                            updateLocationOnMap(location.latitude, location.longitude)
+                            val jsonContent = readJsonFile()
+                            Log.i("JSON_CONTENT", "Contenido del archivo JSON: $jsonContent")
+                        }
                     }
                 }
             }
@@ -167,21 +294,48 @@ class MapActivity : AppCompatActivity(), OnMapReadyCallback{
             val mapFragment = supportFragmentManager
                 .findFragmentById(R.id.map) as SupportMapFragment
             mapFragment.getMapAsync(this)
+
+            startLocationUpdates()
+            lightSensorListener = object : SensorEventListener {
+                override fun onSensorChanged(event: SensorEvent) {
+                    val light = event.values[0]
+                    if (mMap != null) {
+                        if (light < 10) {
+                            mMap!!.setMapStyle(MapStyleOptions.loadRawResourceStyle(this@MapActivity, R.raw.style_dark))
+                        } else {
+                            mMap!!.setMapStyle(MapStyleOptions.loadRawResourceStyle(this@MapActivity, R.raw.style_json))
+                        }
+                    }
+                }
+
+                override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {
+
+                }
+            }
+
+
         }
 
     }
 
+    override fun onResume() {
+        super.onResume()
+        sensorManager.registerListener(lightSensorListener, lightSensor, SensorManager.SENSOR_DELAY_NORMAL)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        sensorManager.unregisterListener(lightSensorListener)
+    }
+
+
     override fun onMapReady(googleMap: GoogleMap) {
         mMap = googleMap
-        mMap.uiSettings.isScrollGesturesEnabledDuringRotateOrZoom = true
-        mMap.uiSettings?.isZoomControlsEnabled = true
-        mMap.uiSettings?.isZoomGesturesEnabled = true
+        mMap!!.uiSettings.isScrollGesturesEnabledDuringRotateOrZoom = true
+        mMap!!.uiSettings?.isZoomControlsEnabled = true
+        mMap!!.uiSettings?.isZoomGesturesEnabled = true
         // Add a marker in Sydney and move the camera
-        val sydney = LatLng(latitud!!.toDouble(), longitud!!.toDouble())
-        mMap.addMarker(MarkerOptions().position(sydney).title("Plaza de Bolivar").snippet("Población 10.331.626") //Texto de Información
-            .alpha(0.5f).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_BLUE))) //Trasparencia
-        mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney))
-        mMap.moveCamera(CameraUpdateFactory.zoomTo(15F))
+        mMap!!.setMapStyle(MapStyleOptions.loadRawResourceStyle(this, R.raw.style_json))
 
     }
 

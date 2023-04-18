@@ -10,21 +10,26 @@
         android:id="@+id/imageButton"
         android:layout_width="141dp"
         android:layout_height="140dp"
+        android:layout_marginTop="32dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
-        app:srcCompat="@android:drawable/ic_menu_camera"
-        tools:ignore="MissingConstraints" />
+        app:srcCompat="@drawable/camara"
+        android:scaleType="fitCenter"
+        android:adjustViewBounds="true"/>
 
     <ImageButton
         android:id="@+id/imageButton2"
         android:layout_width="154dp"
         android:layout_height="149dp"
+        android:layout_marginTop="88dp"
         app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.498"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/imageButton"
-        tools:ignore="MissingConstraints"
-        tools:srcCompat="@tools:sample/avatars" />
+        tools:srcCompat="@drawable/contacts"
+        android:scaleType="fitCenter"
+        android:adjustViewBounds="true"/>
 
     <ImageButton
         android:id="@+id/imageButton3"
@@ -34,6 +39,7 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/imageButton2"
-        app:srcCompat="@android:drawable/ic_menu_mapmode"
-        tools:ignore="MissingConstraints" />
+        app:srcCompat="@drawable/mapa"
+        android:scaleType="fitCenter"
+        android:adjustViewBounds="true"/>
 </androidx.constraintlayout.widget.ConstraintLayout>
